@@ -2,11 +2,15 @@
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="./css/style.css?v=1.0.2">
-<script type="text/javascript" src="https://threejs.org/build/three.js"></script>
-<script type="text/javascript" src="https://threejs.org/examples/js/controls/OrbitControls.js"></script>
-<script type="text/javascript" src="https://threejs.org/examples/js/loaders/GLTFLoader.js"></script>
-<script type="text/javascript" src="https://threejs.org/examples/js/loaders/DRACOLoader.js"></script>
+<link rel="stylesheet" href="./css/style.css">
+<script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.171.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.171.0/examples/jsm/"
+    }
+  }
+</script>
 <!-- Enable Webcam -->
 <script type="text/javascript" src="https://unpkg.com/webcam-easy/dist/webcam-easy.min.js"></script>
 </head>
@@ -14,9 +18,9 @@
 <div>
     <div class="dashboard">
         <button id="demo">Start AR</button>
-        <button onclick="startWebcam();">Start camera</button>
-        <button onclick="stopWebcam();">Stop camera</button>
-        <button onclick="removeTarget();">remove target</button>
+        <button id="startCam">Start camera</button>
+        <button id="stopCam">Stop camera</button>
+        <button id="removeObj">remove target</button>
         <span>leftToRight:</span> <span id="leftToRight"></span>
         <span>frontToBack:</span> <span id="frontToBack"></span>
     </div>
@@ -28,7 +32,12 @@
         <canvas id="canvas" class="d-none"></canvas>
     </div>
 </div>
-<script type="text/javascript">
+<script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+
     let _x, _y, _z;
     let cX, cY, cZ, sX, sY, sZ;
     function createRotationMatrix(out, a, b, g) {
@@ -47,227 +56,268 @@
         out[1] = -cX * sZ;                   // row 2, col 1
         out[2] = cZ * sY + sZ * sX * cY;    // row 3, col 1
 
-        out[3] = cY * sZ + cZ * sX * sY,  // row 1, col 2
-        out[4] = cZ * cX,                   // row 2, col 2
-        out[5] = sZ * sY - cZ * cY * sX,    // row 3, col 2
+        out[3] = cY * sZ + cZ * sX * sY;    // row 1, col 2
+        out[4] = cZ * cX;                   // row 2, col 2
+        out[5] = sZ * sY - cZ * sX * cY;    // row 3, col 2
 
-        out[6] = -cX * sY,                   // row 1, col 3
-        out[7] = sX,                      // row 2, col 3
-        out[8] = cX * cY                    // row 3, col 3
+        out[6] = -cX * sY;                  // row 1, col 3
+        out[7] = sX;                        // row 2, col 3
+        out[8] = cX * cY;                   // row 3, col 3
     }
+
     // Degree-to-Radian conversion
     const deg2rad = Math.PI / 180;
-    let currentRotMat, previousRotMat, inverseMat, relativeRotationDelta, totalRightAngularMovement = 0, totalTopAngularMovement = 0;
-
-    let camera;
-    let renderer;
-    let scene;
-    let target;
-    let mixer;
-    let light;
-    let controls;
-    let axesHelper;
-    let webcamElement, canvasElement, webcam;
-
-    // alpha: rotation around z-axis
-    let upToDown = 0;
-    // gamma: left to right
-    let leftToRight = 0;
-    // beta: front back motion
+    let currentRotMat = new Float32Array(9);
+    let previousRotMat = new Float32Array(9);
+    let inverseMat = new Float32Array(9);
+    let relativeRotationDelta = new Float32Array(9);
+    let totalRightAngularMovement = 0;
+    let totalTopAngularMovement = 0;
     let frontToBack = 90;
+    let isARActive = false;
 
+    let camera, scene, renderer, controls;
+    let model, mixer;
+    const webcamElement = document.getElementById('webcam');
+    const canvasElement = document.getElementById('canvas');
     const clock = new THREE.Clock();
 
     function init() {
-        const objectSection = document.getElementById('center-object');
-
         scene = new THREE.Scene();
+        camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 
         renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.outputEncoding = THREE.sRGBEncoding;
-        
-        objectSection.appendChild(renderer.domElement);
+        document.body.appendChild(renderer.domElement);
 
-        camera = new THREE.PerspectiveCamera( 60, window.innerWidth / window.innerHeight, 0.1, 1000 );
-        camera.up.set(0, 0, 1);
-        camera.position.z = 75;
+        // Add lights
+        const ambientLight = new THREE.AmbientLight(0x404040);
+        scene.add(ambientLight);
 
-        light = new THREE.DirectionalLight(0xffffff, 1);
-        light.position.set(150, 150, 150);
-        scene.add(light);
-        light2 = new THREE.DirectionalLight(0xffffff, 1);
-        light2.position.set(-150, -150, -150);
-        scene.add(light2);
-        light3 = new THREE.DirectionalLight(0xffffff, 1);
-        light3.position.set(0, 0, 150);
-        scene.add(light3);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+        directionalLight.position.set(1, 1, 1);
+        scene.add(directionalLight);
 
-        // Orbit
-        // controls = new THREE.OrbitControls(camera, renderer.domElement);
-        // controls.target.set(0, 0.5, 0);
-        // controls.update();
-    
-        axesHelper = new THREE.AxesHelper(10);
-        const colors = axesHelper.geometry.attributes.color;
-        colors.setXYZ( 0, 1, 0, 0 ); // index, R, G, B
-        colors.setXYZ( 1, 1, 0, 0 ); // red -> x
-        colors.setXYZ( 2, 0, 1, 0 );
-        colors.setXYZ( 3, 0, 1, 0 ); // green -> y
-        colors.setXYZ( 4, 0, 0, 1 );
-        colors.setXYZ( 5, 0, 0, 1 ); // blue -> z
-        // 座標軸
-        // scene.add( axesHelper );
+        const backLight = new THREE.DirectionalLight(0xffffff, 0.5);
+        backLight.position.set(-1, -1, -1);
+        scene.add(backLight);
+
+        controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+
+        camera.position.set(0, 0, 5);
+        controls.update();
+
+        window.addEventListener('resize', onWindowResize, false);
     }
 
-    window.onload = function() {
-        init();
-        let is_running = false;
-        const btn = document.getElementById('demo');
-        btn.addEventListener("click", function(e) {
-            e.preventDefault();
-            if (DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === 'function') {
-                DeviceMotionEvent.requestPermission();
-            }
-            const dracoLoader = new THREE.DRACOLoader();
-            dracoLoader.setDecoderPath('https://threejs.org/examples/js/libs/draco/gltf/');
-            const objLoader = new THREE.GLTFLoader();
+    function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    }
 
+    function startWebcam() {
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            navigator.mediaDevices.getUserMedia({ 
+                video: {
+                    facingMode: { exact: "environment" } // Use back camera
+                }
+            })
+            .then(function (stream) {
+                webcamElement.srcObject = stream;
+            })
+            .catch(function (error) {
+                // If exact "environment" fails, try without "exact" constraint
+                navigator.mediaDevices.getUserMedia({ 
+                    video: {
+                        facingMode: "environment"
+                    }
+                })
+                .then(function (stream) {
+                    webcamElement.srcObject = stream;
+                })
+                .catch(function (error) {
+                    console.error("Unable to access camera", error);
+                });
+            });
+        }
+    }
+
+    function stopWebcam() {
+        const stream = webcamElement.srcObject;
+        if (stream) {
+            const tracks = stream.getTracks();
+            tracks.forEach(track => track.stop());
+            webcamElement.srcObject = null;
+        }
+    }
+
+    function removeTarget() {
+        if (model) {
+            scene.remove(model);
+            model = null;
+        }
+    }
+
+    function resetModel() {
+        if (model) {
+            // Reset position
+            model.position.set(0, -1, 0);
+            
+            // Reset rotation
+            model.rotation.set(0, 0, 0);
+            
+            // Reset animation if exists
+            if (mixer) {
+                // Stop all current animations
+                mixer.stopAllAction();
+                
+                // Reset and play the first animation
+                const animations = model.animations || model.parent.animations;
+                if (animations && animations.length > 0) {
+                    const action = mixer.clipAction(animations[0]);
+                    action.reset();
+                    action.play();
+                }
+            }
+            
+            // Reset movement tracking variables
+            totalRightAngularMovement = 0;
+            totalTopAngularMovement = 0;
+            frontToBack = 90;
+            
+            // Reset matrices
+            previousRotMat.fill(0);
+            currentRotMat.fill(0);
+            relativeRotationDelta.fill(0);
+            
+            // Update UI
+            document.getElementById('leftToRight').textContent = '0.00';
+            document.getElementById('frontToBack').textContent = '0.00';
+        }
+    }
+
+    function handleOrientation(e) {
+        if (!e || e.alpha === null || e.beta === null || e.gamma === null) return;
+
+        // alpha: rotation around z-axis
+        const upToDown = e.alpha;
+        // gamma: left to right
+        const leftToRight = e.gamma;
+        // beta: front back motion
+        const frontToBack = e.beta;
+
+        document.getElementById('leftToRight').textContent = leftToRight.toFixed(2);
+        document.getElementById('frontToBack').textContent = frontToBack.toFixed(2);
+
+        if (model) {
+            model.rotation.x = frontToBack * deg2rad;
+            model.rotation.y = leftToRight * deg2rad;
+            model.rotation.z = upToDown * deg2rad;
+        }
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+        
+        if (mixer) {
+            const delta = clock.getDelta();
+            mixer.update(delta);
+        }
+
+        controls.update();
+        renderer.render(scene, camera);
+    }
+
+    // Initialize and start
+    init();
+    animate();
+
+    // Add device orientation listener
+    if (window.DeviceOrientationEvent) {
+        //window.addEventListener('deviceorientation', handleOrientation, false);
+    }
+
+    // Event Listeners
+    let is_running = false;
+    document.getElementById('demo').addEventListener('click', function() {
+        const btn = document.getElementById('demo');
+        
+        if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+            DeviceOrientationEvent.requestPermission()
+                .then(response => {
+                    if (response == 'granted') {
+                        if (is_running) {
+                            window.removeEventListener("deviceorientation", handleOrientation);
+                            btn.innerHTML = 'Start AR';
+                            removeTarget();
+                        } else {
+                            window.addEventListener("deviceorientation", handleOrientation);
+                            resetModel();
+                            btn.innerHTML = 'Stop AR';
+                            // Load Bengal cat model
+                            const loader = new GLTFLoader();
+                            const dracoLoader = new DRACOLoader();
+                            dracoLoader.setDecoderPath('three/addons/libs/draco/');
+                            loader.setDRACOLoader(dracoLoader);
+
+                            const catURL = './models/source/Bengal.glb';
+                            loader.load(catURL, (gltf) => {
+                                gltf.scene.name = 'target';
+                                scene.add(gltf.scene);
+                                // for bengal cat
+                                gltf.scene.position.set(0, -1, 0);
+                                gltf.scene.scale.set(5, 5, 5);
+                                model = gltf.scene;
+                                mixer = new THREE.AnimationMixer(model);
+                                if (gltf.animations && gltf.animations.length > 0) {
+                                    mixer.clipAction(gltf.animations[0]).play();
+                                }
+                            });
+                        }
+                        is_running = !is_running;
+                    }
+                })
+                .catch(console.error);
+        } else {
             if (is_running) {
                 window.removeEventListener("deviceorientation", handleOrientation);
                 btn.innerHTML = 'Start AR';
                 removeTarget();
             } else {
                 window.addEventListener("deviceorientation", handleOrientation);
-                removeTarget();
+                resetModel();
                 btn.innerHTML = 'Stop AR';
-                const catURL = './models/source/Bengal.glb'
-                objLoader.setDRACOLoader(dracoLoader);
-                objLoader.load(catURL, (gltf) => {
+                // Load Bengal cat model
+                const loader = new GLTFLoader();
+                const dracoLoader = new DRACOLoader();
+                dracoLoader.setDecoderPath('three/addons/libs/draco/');
+                loader.setDRACOLoader(dracoLoader);
+
+                const catURL = './models/source/Bengal.glb';
+                loader.load(catURL, (gltf) => {
                     gltf.scene.name = 'target';
                     scene.add(gltf.scene);
                     // for bengal cat
-                    gltf.scene.position.set(0, 0, 0);
-                    gltf.scene.scale.set( 50, 50, 50);
-                    target = gltf.scene.children[0];
-                    mixer = new THREE.AnimationMixer(target);
-                    mixer.clipAction(gltf.animations[0]).play();
-
-                    // add target
-                    target = gltf.scene.children[0];
-                    target.position.set(0, 0, 0);
-                    target.rotation.set(0, 0, 0);
-
-                    animate();
-                },
-                (xhr) => {
-                    console.log('xhr', xhr);
-                    return false;
-                },
-                (err) => {
-                    console.log('err', err);
-                    return false;
+                    gltf.scene.position.set(0, -1, 0);
+                    gltf.scene.scale.set(5, 5, 5);
+                    model = gltf.scene;
+                    mixer = new THREE.AnimationMixer(model);
+                    if (gltf.animations && gltf.animations.length > 0) {
+                        mixer.clipAction(gltf.animations[0]).play();
+                    }
                 });
             }
             is_running = !is_running;
-        });
-    }
-
-    function handleOrientation(e) {
-        // alpha: rotation around z-axis
-        upToDown = e.alpha;
-        // gamma: left to right, rotate around y-axis, ranging from -90 to 90 degrees
-        leftToRight = e.gamma;
-        // beta: front back motion, rotate around x-axis, ranging from -180 to 180 degrees
-        frontToBack = e.beta;
-        if (typeof previousRotMat === 'undefined') {
-            previousRotMat = new THREE.Matrix3();
-            currentRotMat = new THREE.Matrix3();
-            relativeRotationDelta = new THREE.Matrix3();
-            createRotationMatrix(currentRotMat, e.alpha * deg2rad, e.beta * deg2rad, e.gamma * deg2rad);
         }
-        // save last orientation
-        previousRotMat = currentRotMat;
-        // get rotation in the previous orientation coordinate
-        createRotationMatrix(currentRotMat, e.alpha * deg2rad, e.beta * deg2rad, e.gamma * deg2rad);
-        // for rotation matrix, inverse is transpose
-        inverseMat = previousRotMat;
-        inverseMat.transpose();
-        relativeRotationDelta = currentRotMat.multiply(inverseMat);
-        
-        // add the angular deltas to the cummulative rotation
-        totalTopAngularMovement = Math.asin(relativeRotationDelta[6]) / deg2rad;
-        totalRightAngularMovement = Math.asin(relativeRotationDelta[7]) / deg2rad;
-    }
+    });
 
-    function startWebcam() {
-        webcamElement = document.getElementById('webcam');
-        canvasElement = document.getElementById('canvas');
-        webcam = new Webcam(webcamElement, 'user', canvasElement);
-        webcam.flip();
-        webcam.start().then(result =>{
-            console.log("webcam started");
-        }).catch(err => {
-            console.log(err);
-        });
-    }
-
-    function stopWebcam() {
-        webcam.stop();
-    }
-
-    function removeTarget() {
-        selectedObject = scene.getObjectByName('target');
-        scene.remove(selectedObject);
-    }
-
-    function animate() {
-        requestAnimationFrame(animate);
-
-        const delta = clock.getDelta();
-        if (typeof mixer !== 'undefined') {
-            mixer.update(delta);
-        }
-        
-        target.position.set(0, 0, 0);
-
-        let yRotation = -totalRightAngularMovement;
-        yRotation = yRotation.toFixed(2);
-        // create a range to clamp rotating value
-        yRotation = yRotation > 45 ? 45 : yRotation;
-        yRotation = yRotation < -45 ? -45 : yRotation;
-        target.rotation.y = yRotation / 25;
-        camera.rotation.y = yRotation / 250;
-        document.getElementById('leftToRight').innerHTML = yRotation;
-
-        // default
-        let xRotation = 45;
-        if (totalTopAngularMovement == 0) {
-            xRotation = 45;
-        } else {
-            xRotation = 90 + totalTopAngularMovement;
-            if (frontToBack > 90) {
-                xRotation = -xRotation;
-            }
-            // to handle gimbal lock, I have to offset leftToRight angel when rotating along with x axis
-            if (leftToRight > 0) {
-                xRotation -= leftToRight;
-            } else {
-                xRotation += leftToRight;
-            }
-            // create a range to clamp rotating value
-            xRotation = xRotation > 45 ? 45 : xRotation;
-            xRotation = xRotation < -45 ? -45 : xRotation;
-            target.rotation.x = xRotation / 50;
-        }
-        document.getElementById('frontToBack').innerHTML = xRotation;
-    
-        camera.aspect = window.innerWidth / window.innerHeight;
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        camera.updateProjectionMatrix();
-
-        renderer.render(scene, camera);
-    }
+    document.getElementById('startCam').addEventListener('click', startWebcam);
+    document.getElementById('stopCam').addEventListener('click', stopWebcam);
+    document.getElementById('removeObj').addEventListener('click', removeTarget);
 </script>
 </body>
 </html>

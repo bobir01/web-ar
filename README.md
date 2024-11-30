@@ -8,9 +8,14 @@ Now I dare to challenge myself to build my own AR project.
 
 # How To Run
 
-Make sure you have a SSL server and Node, NPM installed on it. If not, you can generate self-signed cert.pem and key.pem
+Make sure you have Node.js and NPM installed on your system.
 
-Clone this project and type `npm insatll` then `npm start`. Later, open `https://{YOUR ID}:3000` on your phone and see the result.
+1. Clone this project
+2. Run `npm install` to install dependencies
+3. Run `npm start` to start the server
+4. Open `http://localhost:3000` in your browser to see the result
+
+Note: For AR features to work properly, you'll need to access the application from a device with camera and motion sensors.
 
 # Future Work
 
