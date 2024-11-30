@@ -11,11 +11,11 @@ https.createServer(options, function (req, res) {
     req.addListener('end', function () {
         file.serve(req, res);
     }).resume();
-}).listen(3000);
+}).listen(3000, "0.0.0.0");
 
 
 http.createServer(options, function (req, res) {
     req.addListener('end', function () {
         file.serve(req, res);
     }).resume();
-}).listen(3001);
+}).listen(3001,  "0.0.0.0");
