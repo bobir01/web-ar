@@ -4,8 +4,6 @@ const http = require('http');
 const fs = require('fs');
 
 const options = {
-    key: fs.readFileSync('key.pem'),
-    cert: fs.readFileSync('cert.pem')
 }
 const file = new (static.Server)();
 
